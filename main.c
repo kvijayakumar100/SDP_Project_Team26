@@ -1,184 +1,443 @@
-/*
- * GccApplication2.c
- *
- * Created: 2/26/2022 2:35:29 PM
- * Author : sdp
- */ 
-
 #include <avr/io.h>
+#define F_CPU 8000000UL
+#include <util/delay.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#define DEBOUNCE_TIME 25
 
-void TWI_init_master(void) // Function to initialize master
+void TWIInit(void)
 {
-	TWBR=0x01;    // Bit rate
-	TWSR=(0<<TWPS1)|(0<<TWPS0);    // Setting prescalar bits
+	TWSR = 0x00;
+	TWBR = 0x0C;
+	TWAR = 0x70;
+	TWCR = (1 << TWEA) | (1 << TWEN) | (1 << TWIE);
 }
 
-void TWI_start(void)
+void TWIStart(void)
 {
-	// Clear TWI interrupt flag, Put start condition on SDA, Enable TWI
-	TWCR= (1<<TWINT)|(1<<TWSTA)|(1<<TWEN);
-	while(!(TWCR & (1<<TWINT))); // Wait till start condition is transmitted
-	while((TWSR & 0xF8)!= 0x08); // Check for the acknowledgement
+	TWCR = (1<<TWINT)|(1<<TWSTA)|(1<<TWEN);
+	while ((TWCR & (1<<TWINT)) == 0);
 }
 
-void TWI_write_address(unsigned char data)
+void TWIStop(void)
 {
-	TWDR=data; // Address and write instruction
-	TWCR=(1<<TWINT)|(1<<TWEN);    // Clear TWI interrupt flag,Enable TWI
-	while (!(TWCR & (1<<TWINT))); // Wait till complete TWDR byte transmitted
-	while((TWSR & 0xF8)!= 0x18);  // Check for the acknoledgement
+	TWCR = (1<<TWINT)|(1<<TWSTO)|(1<<TWEN);
 }
 
-void TWI_read_address(unsigned char data)
+void TWIWrite(uint8_t u8data)
 {
-	TWDR=data;    // Address and read instruction
-	TWCR=(1<<TWINT)|(1<<TWEN);    // Clear TWI interrupt flag,Enable TWI
-	while (!(TWCR & (1<<TWINT))); // Wait till complete TWDR byte received
-	while((TWSR & 0xF8)!= 0x40);  // Check for the acknoledgement
+	TWDR = u8data;
+	TWCR = (1<<TWINT)|(1<<TWEN);
+	while ((TWCR & (1<<TWINT)) == 0);
 }
 
-void TWI_write_data(unsigned char data)
+uint8_t TWIReadACK(void)
 {
-	TWDR=data;    // put data in TWDR
-	TWCR=(1<<TWINT)|(1<<TWEN);    // Clear TWI interrupt flag,Enable TWI
-	while (!(TWCR & (1<<TWINT))); // Wait till complete TWDR byte transmitted
-	while((TWSR & 0xF8) != 0x28); // Check for the acknoledgement
+	TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWEA);
+	while ((TWCR & (1<<TWINT)) == 0);
+	return TWDR;
 }
 
-void TWI_stop(void)
+uint8_t TWIReadNACK(void)
 {
-	// Clear TWI interrupt flag, Put stop condition on SDA, Enable TWI
-	TWCR= (1<<TWINT)|(1<<TWEN)|(1<<TWSTO);
-	while(!(TWCR & (1<<TWSTO)));  // Wait till stop condition is transmitted
+	TWCR = (1<<TWINT)|(1<<TWEN);
+	while ((TWCR & (1<<TWINT)) == 0);
+	return TWDR;
 }
 
-void TWI_read_data(void)
+uint8_t TWIGetStatus(void)
 {
-	TWCR=(1<<TWINT)|(1<<TWEN);    // Clear TWI interrupt flag,Enable TWI
-	while (!(TWCR & (1<<TWINT))); // Wait till complete TWDR byte transmitted
-	while((TWSR & 0xF8) != 0x58); // Check for the acknoledgement
-	recv_data = TWDR;
-	PORTB=recv_data;
+	uint8_t status;
+	//mask status
+	status = TWSR & 0xF8;
+	return status;
 }
 
-uint8_t get_tot_mins(uint8_t difLevel) {
-	uint8_t totalMins;
-	
-	if (0x0 < difLevel <= 0x3) {
-		totalMins = 0x5;
+void flashSeq(int *sequence, int seqLength)
+{
+	for (int j = 0; j <= seqLength; j++)
+	{
+		
+		_delay_ms(150);
+		if (sequence[j] == 0) //Green
+		{
+			PORTD |= (1 << DDD1);
+			_delay_ms(150);
+			PORTD &= ~(1 << DDD1);
+		}
+		if (sequence[j] == 1) //Red
+		{
+			PORTD |= (1 << DDD3);
+			_delay_ms(150);
+			PORTD &= ~(1 << DDD3);
+		}
+		if (sequence[j] == 2) //Blue
+		{
+			PORTD |= (1 << DDD5);
+			_delay_ms(150);
+			PORTD &= ~(1 << DDD5);
+		}
+		if (sequence[j] == 3) //Yellow
+		{
+			PORTD |= (1 << DDD7);
+			_delay_ms(150);
+			PORTD &= ~(1 << DDD7);
+		}
 	}
-	else if (0x3 < difLevel <= 0x6) {
-		totalMins = 0x6;
+}
+
+int compareArrays(int a[], int b[], int arrSize)
+{
+	for(int i = 0; i < arrSize; i++)
+	{
+		if (a[i] != b[i])
+		{
+			return 0;
+		}
 	}
-	else {
-		totalMins = 0x7;
-	}
-
-	return totalMins;
+	return 1;
 }
 
-void send_data(uint8_t peripheral, uint8_t data) {
-	TWI_start();
-	TWI_write_address(peripheral);
-	TWI_write_data(data);
-	TWI_stop();
-}
-
-void get_data(uint8_t peripheral, uint8_t data) {
-	TWI_start();
-	TWI_read_address(peripheral);
-	TWI_read_data(data);
-	TWI_stop();
-}
 
 int main(void)
 {
-    uint8_t level = 0x1;
-	uint8_t totalMin = get_tot_mins(level);
-	bool boolVow = init_display();
-	
-	DDRD = 0b00000111;		// LED strike pins D0-D2 set as output
-	
-	TWI_init_master();
-	
-    while (1) 
-    {
-		// first simon says data sent
-		TWI_start();
-		TWI_write_address(0x38);
-		TWI_write_data(level);
-		TWI_stop();
-		
-		// second simon says data sent
-		TWI_start();
-		TWI_write_address(0x38);
-		TWI_write_data(boolVow);
-		TWI_stop();
-		
-		// third simon says data sent
-		TWI_start();
-		TWI_write_address(0x38);
-		TWI_write_data(rSeed);
-		TWI_stop();
-		
-		// first password data sent
-		TWI_start();
-		TWI_write_address(0x29);
-		TWI_write_data(level);
-		TWI_stop();
-		
-		// second password data sent
-		TWI_start();
-		TWI_write_address(0x29);
-		TWI_write_data(rSeed);
-		TWI_stop();
-		
-		// first clock data sent
-		TWI_start();
-		TWI_write_address(clck);
-		TWI_write_data(totalMin);
-		TWI_stop();
-		
-		while ((strikes < 3) && !game_over) {
-			
-			state = get_data(devList[i%3]);
-
-			switch (state) {
-
-				case 0x0: break;
-
-				case 0x1:
-				strikes = strikes + 0x1;
-				if (devList[i%3] != simon) {
-					send_data(simon, strikes);
+	DDRB = 0x00;
+	DDRD = 0b10101010;
+	DDRC = 0b00001011;
+	PORTC = 0b00000100;
+	uint8_t difLevel;
+	uint8_t contVowel;
+	uint8_t rSeed;
+	uint8_t strikes = 0x00;
+	bool First = true;
+	bool complete = false;
+	int numCompleted = 0;
+	bool gameOver = false;
+	TWIInit();
+	PORTC &= ~(1 << DDC3);
+	while (gameOver == false)
+	{
+		if (First == true)
+		{
+			while (1)
+			{
+				if (TWIGetStatus() == 0x60)
+				{
+					//PORTC |= (1 << DDC0);
+					difLevel = TWIReadACK();
+					TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+					TWIInit();
+					break;
 				}
-				break;
+			}
+			
+			while (1)
+			{
+				if (TWIGetStatus() == 0x60)
+				{
+					//PORTC |= (1 << DDC0);
+					contVowel = TWIReadACK();
+					TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+					TWIInit();
+					break;
+				}
+			}
+			while (1)
+			{
+				if (TWIGetStatus() == 0x60)
+				{
+					//PORTC |= (1 << DDC0);
+					rSeed = TWIReadACK();
+					TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+					TWIInit();
+					break;
+				}
+			}
+		}
+		First = false;
+		int need2Complete = difLevel + 2;
+		srand(rSeed);
 
-				case 0x2:
-				finList[i%3] = true;
-				break;
+		int seqLength = difLevel+2+numCompleted;
+
+		int sequence[seqLength];
+		
+		int corrSequence[seqLength];
+		
+		int pressedSequence[seqLength];
+		
+		
+		//PORTC |= (1 << DDC1); // turn red led on, indicating module is unfinished
+		
+		PORTC |= (1 << DDC0); // turn red led on, indicating module is unfinished
+
+		for (int i = 0; i < seqLength; i++)
+		{
+			
+			sequence[i] = rand() % 4;
+			
+			if (contVowel == 0x01)
+			{
+				if (strikes == 0)
+				{
+					if (sequence[i] == 0)
+					{
+						corrSequence[i] = 3;
+					}
+					
+					else if (sequence[i] == 1)
+					{
+						corrSequence[i] = 2;
+					}
+					
+					else if (sequence[i] == 2)
+					{
+						corrSequence[i] = 1;
+					}
+					
+					else if (sequence[i] == 3)
+					{
+						corrSequence[i] = 0;
+					}
+				}
+				
+				else if (strikes == 1)
+				{
+					if (sequence[i] == 0)
+					{
+						corrSequence[i] = 2;
+					}
+					
+					else if (sequence[i] == 1)
+					{
+						corrSequence[i] = 3;
+					}
+					
+					else if (sequence[i] == 2)
+					{
+						corrSequence[i] = 0;
+					}
+					
+					else if (sequence[i] == 3)
+					{
+						corrSequence[i] = 1;
+					}
+				}
+				
+				else if (strikes == 2)
+				{
+					if (sequence[i] == 0)
+					{
+						corrSequence[i] = 3;
+					}
+					
+					else if (sequence[i] == 1)
+					{
+						corrSequence[i] = 0;
+					}
+					
+					else if (sequence[i] == 2)
+					{
+						corrSequence[i] = 1;
+					}
+					
+					else if (sequence[i] == 3)
+					{
+						corrSequence[i] = 2;
+					}
+				}
+			}
+			if (contVowel == 0x00)
+			{
+				if (strikes == 0)
+				{
+					if (sequence[i] == 0)
+					{
+						corrSequence[i] = 0;
+					}
+					
+					else if (sequence[i] == 1)
+					{
+						corrSequence[i] = 2;
+					}
+					
+					else if (sequence[i] == 2)
+					{
+						corrSequence[i] = 3;
+					}
+					
+					else if (sequence[i] == 3)
+					{
+						corrSequence[i] = 1;
+					}
+				}
+				
+				else if (strikes == 1)
+				{
+					if (sequence[i] == 0)
+					{
+						corrSequence[i] = 3;
+					}
+					
+					else if (sequence[i] == 1)
+					{
+						corrSequence[i] = 1;
+					}
+					
+					else if (sequence[i] == 2)
+					{
+						corrSequence[i] = 2;
+					}
+					
+					else if (sequence[i] == 3)
+					{
+						corrSequence[i] = 0;
+					}
+				}
+				
+				else if (strikes == 2)
+				{
+					if (sequence[i] == 0)
+					{
+						corrSequence[i] = 2;
+					}
+					
+					else if (sequence[i] == 1)
+					{
+						corrSequence[i] = 3;
+					}
+					
+					else if (sequence[i] == 2)
+					{
+						corrSequence[i] = 0;
+					}
+					
+					else if (sequence[i] == 3)
+					{
+						corrSequence[i] = 1;
+					}
+				}
+			}
+			
+		}
+		
+		flashSeq(sequence, seqLength);
+		
+		int count = 0;
+		
+		while(complete == false){
+			
+			/*if (TWIGetStatus() == 0xA8)
+			{
+				TWIWrite(strikes);
+				TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+				TWIInit();
+			}*/
+			
+			if ((PIND & (1 << PIND0)))
+			{
+				_delay_ms(DEBOUNCE_TIME);
+				if ((PIND & (1 << PIND0)))
+				{
+					PORTD ^= (1<<DDD1);
+					_delay_ms(20);
+					PORTD &= ~(1<<DDD1);
+					pressedSequence[count] = 0;
+					count++;
+				}
+			}
+			if ((PIND & (1 << PIND2)))
+			{
+				_delay_ms(DEBOUNCE_TIME);
+				if ((PIND & (1 << PIND2)))
+				{
+					PORTD ^= (1<<DDD3);
+					_delay_ms(20);
+					PORTD &= ~(1<<DDD3);
+					pressedSequence[count] = 1;
+					count++;
+				}
+			}
+			if ((PIND & (1 << PIND4)))
+			{
+				_delay_ms(DEBOUNCE_TIME);
+				if ((PIND & (1 << PIND4)))
+				{
+					PORTD ^= (1<<DDD5);
+					_delay_ms(20);
+					PORTD &= ~(1<<DDD5);
+					pressedSequence[count] = 2;
+					count++;
+				}
+			}
+			if ((PIND & (1 << PIND6)))
+			{
+				_delay_ms(DEBOUNCE_TIME);
+				if ((PIND & (1 << PIND6)))
+				{
+					PORTD ^= (1<<DDD7);
+					_delay_ms(20);
+					PORTD &= ~(1<<DDD7);
+					pressedSequence[count] = 3;
+					count++;
+				}
 				
 			}
 			
-			if (strikes == 1){
-				PORTD |= (1 << DDD0);
-			}
-
-			else if (strikes == 2){
-				PORTD |= (1 << DDD1);
+			if ((PINC & (1 << PINC3)))
+			{
+				flashSeq(sequence, seqLength);
 			}
 			
-			else if (strikes == 3){
-				PORTD |= (1 << DDD2);
+			if(count == seqLength)
+			{
+				complete = true;
 			}
-
-			i++;
-
-			/* determine game over */
-			if (((finList[0] & finList[1]) == true) || (finList[2] == true)) {
-				game_over = true;
-			}
+			
 		}
-    }
+		if(compareArrays(pressedSequence, corrSequence, seqLength) == 1)
+		{
+			numCompleted ++;
+			PORTC &= ~(1 << DDC0);
+			PORTC |= (1 << DDC1);
+			_delay_ms(100);
+			
+			if (need2Complete == numCompleted)
+			{
+				gameOver = true;
+				while(TWIGetStatus() != 0xA8); //look here if strike gets sent or not right away not after password
+				TWIWrite(2);
+				TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+				TWIInit();
+			}
+			else
+			{
+				PORTC |= (1 << DDC0);
+				PORTC &= ~(1 << DDC1);
+				complete = false;
+			}
+			
+		}
+		else
+		{
+			PORTC &= ~(1 << DDC0);
+			_delay_ms(50);
+			PORTC |= (1 << DDC0);
+			strikes += 1;
+			complete = false;
+			while(TWIGetStatus() != 0xA8);
+			TWIWrite(1);
+			TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+			TWIInit();
+		}
+		
+		if (TWIGetStatus() == 0xA8)
+		{
+			TWIWrite(0);
+			TWCR = (0 << TWSTO) | (1 << TWINT) | (1 << TWEA);
+			TWIInit();
+		}
+		
+	}
+	
 }
-
